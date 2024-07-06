@@ -8,6 +8,7 @@ use std::process::Command;
 use std::io;
 use std::path::Path;
 use std::fs;
+use crate::models::pdf::CompressionLevel;
 
 pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, ActixError> {
     info!("Receiving PDF file for compression");
@@ -21,7 +22,7 @@ pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, A
     }
     info!("PDF file received and saved temporarily");
 
-    let compressed_content = compress_pdf(temp_file.path())?;
+    let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Medium)?;
     
     info!("Sending compressed PDF file");
     Ok(HttpResponse::Ok()
@@ -29,7 +30,7 @@ pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, A
         .body(compressed_content))
 }
 
-pub fn compress_pdf(input_path: &Path) -> io::Result<Vec<u8>> {
+pub fn compress_pdf(input_path: &Path, compression_level: CompressionLevel) -> io::Result<Vec<u8>> {
     info!("Compressing PDF file: {:?}", input_path);
 
     let input_content = fs::read(input_path)?;
@@ -42,11 +43,17 @@ pub fn compress_pdf(input_path: &Path) -> io::Result<Vec<u8>> {
     let output_file = NamedTempFile::new()?;
     let output_path = output_file.path();
 
-    let gs_cmd = Command::new("gswin64c")  
+    let compression_settings = match compression_level {
+        CompressionLevel::Low => "-dPDFSETTINGS=/screen -dColorImageResolution=72 -dGrayImageResolution=72 -dMonoImageResolution=72",
+        CompressionLevel::Medium => "-dPDFSETTINGS=/ebook -dColorImageResolution=150 -dGrayImageResolution=150 -dMonoImageResolution=150",
+        CompressionLevel::High => "-dPDFSETTINGS=/printer -dColorImageResolution=300 -dGrayImageResolution=300 -dMonoImageResolution=300",
+    };
+
+    let gs_cmd = Command::new("gswin64c")
         .args(&[
             "-sDEVICE=pdfwrite",
             "-dCompatibilityLevel=1.4",
-            "-dPDFSETTINGS=/ebook",
+            compression_settings,
             "-dNOPAUSE",
             "-dQUIET",
             "-dBATCH",
