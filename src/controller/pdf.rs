@@ -22,7 +22,7 @@ pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, A
     }
     info!("PDF file received and saved temporarily");
 
-    let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Medium)?;
+    let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Low)?;
     
     info!("Sending compressed PDF file");
     Ok(HttpResponse::Ok()
