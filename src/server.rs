@@ -7,6 +7,8 @@ use mongodb::Database;
 use serde::Serialize;
 use std::net::TcpListener;
 
+use crate::routes::pdf::configure_pdf_routes;
+
 #[derive(Serialize)]
 struct ApiInfo {
     api: &'static str,
@@ -37,7 +39,7 @@ pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error
         App::new()
             .app_data(db.clone())
             .route("/", web::get().to(root))
-            // .configure(notes::configure_note_routes)
+            .configure(configure_pdf_routes)
             // .configure(users::configure_auth_routes)
     })
     .listen(listener)?
