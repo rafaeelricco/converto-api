@@ -1,10 +1,15 @@
-use actix_web::{HttpResponse, Responder};
+use actix_multipart::Multipart;
+use actix_web::{web, Error, HttpResponse};
+use futures::{StreamExt, TryStreamExt};
 
-
-pub async fn compress_pdf() -> impl Responder {
+pub async fn compress_pdf(mut payload: Multipart) -> Result<HttpResponse, Error> {
     //! # Compress PDF
+    while let Ok(Some(mut field)) = payload.try_next().await {
+        let content_type = field.content_disposition();
+        if let Some(filename) = content_type.get_filename() {
+            // Lógica para salvar ou processar o arquivo
+        }
+    }
     //!
-    //! This function will be responsible for compressing a PDF file. It will receive a PDF file and return a compressed PDF file.
-    //!
-    HttpResponse::Ok().body("Compress PDF")
+    Ok(HttpResponse::Ok().body("Arquivo recebido e processado"))
 }
