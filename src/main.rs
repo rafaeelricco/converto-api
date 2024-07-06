@@ -1,6 +1,6 @@
-use db::mongodb::init_db_pool;
-use log::info;
 use server::run;
+use db::mongodb::init_db_pool;
+use log::{info, warn, error};
 use std::{env, net::TcpListener};
 
 mod db;
@@ -12,21 +12,62 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    dotenv::dotenv().ok();
-    env::set_var("RUST_LOG", "info,actix_web=debug");
+    match dotenv::dotenv() {
+        Ok(_) => info!("Successfully loaded .env file"),
+        Err(e) => warn!("Failed to load .env file: {}. Using default environment variables.", e),
+    }
+
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info,actix_web=debug");
+    }
     env_logger::init();
-    info!("Starting server...");
+    info!("Logging initialized with RUST_LOG={}", env::var("RUST_LOG").unwrap_or_else(|_| "info,actix_web=debug".to_string()));
 
-    let address = dotenv::var("HOST").expect("A variável de ambiente 'address' não está definida. Por favor, defina-a no seu arquivo .env.");
-    let db_url = dotenv::var("DB_URL").expect("A variável de ambiente 'DB_URL' não está definida. Por favor, defina-a no seu arquivo .env.");
+    info!("Starting server initialization...");
 
-    let listener = TcpListener::bind(address.clone()).expect("Failed to bind to the listener");
+    let address = match env::var("HOST") {
+        Ok(addr) => addr,
+        Err(_) => {
+            error!("Environment variable 'HOST' is not set. Please define it in your .env file.");
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "HOST environment variable not set"));
+        }
+    };
 
-    let db_pool = init_db_pool(&db_url)
-        .await
-        .expect("Erro ao inicializar o pool de conexões do MongoDB.");
+    let db_url = match env::var("DB_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            error!("Environment variable 'DB_URL' is not set. Please define it in your .env file.");
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "DB_URL environment variable not set"));
+        }
+    };
+
+    info!("Attempting to bind to address: {}", address);
+    let listener = match TcpListener::bind(&address) {
+        Ok(l) => {
+            info!("Successfully bound to address: {}", address);
+            l
+        },
+        Err(e) => {
+            error!("Failed to bind to address {}: {}", address, e);
+            return Err(e);
+        }
+    };
+
+    info!("Initializing database connection pool...");
+    let db_pool = match init_db_pool(&db_url).await {
+        Ok(pool) => {
+            info!("Successfully initialized MongoDB connection pool");
+            pool
+        },
+        Err(e) => {
+            error!("Failed to initialize MongoDB connection pool: {}", e);
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("Database initialization error: {}", e)));
+        }
+    };
+
     let db = db_pool.database("rust-actix-web-mongodb");
+    info!("Using database: rust-actix-web-mongodb");
 
-    info!("Starting server at http://{}", address);
+    info!("Server initialization complete. Starting server at http://{}", address);
     run(listener, db)?.await
 }
