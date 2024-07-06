@@ -4,10 +4,9 @@ use server::run;
 use std::{env, net::TcpListener};
 
 mod db;
-// mod controller;
-// mod middleware;
-// mod models;
-// mod routes;
+mod controller;
+mod models;
+mod routes;
 mod server;
 
 #[tokio::main]
