@@ -2,7 +2,7 @@ use tempfile::NamedTempFile;
 use actix_web::{HttpResponse, Error as ActixError};
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
-use log::{info, error};
+use log::{info, error, debug};
 use zip::write::FileOptions;
 use zip::ZipWriter;
 use std::io::Write;
@@ -13,6 +13,22 @@ use std::fs;
 use std::io::Cursor;
 
 use crate::models::pdf::CompressionLevel;
+
+fn format_file_size(size: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if size >= GB {
+        format!("{:.2} GB", size as f64 / GB as f64)
+    } else if size >= MB {
+        format!("{:.2} MB", size as f64 / MB as f64)
+    } else if size >= KB {
+        format!("{:.2} KB", size as f64 / KB as f64)
+    } else {
+        format!("{} bytes", size)
+    }
+}
 
 pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, ActixError> {
     info!("Receiving PDF files for compression");
@@ -30,9 +46,20 @@ pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, A
             temp_file.write_all(&data)?;
         }
 
-        info!("PDF file '{}' received and saved temporarily", filename);
+        let original_size = temp_file.path().metadata()?.len();
+        info!("PDF file '{}' received and saved temporarily (size: {})", filename, format_file_size(original_size));
 
         let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Low)?;
+        let compressed_size = compressed_content.len() as u64;
+        let compression_ratio = (compressed_size as f64 / original_size as f64) * 100.0;
+        let size_reduction = 100.0 - compression_ratio;
+        
+        debug!("File '{}' compressed: {} -> {} (reduced by {:.2}%)", 
+               filename, 
+               format_file_size(original_size), 
+               format_file_size(compressed_size), 
+               size_reduction);
+
         compressed_files.push(compressed_content);
         file_names.push(filename);
     }
@@ -40,14 +67,17 @@ pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, A
     match compressed_files.len() {
         0 => Err(ActixError::from(io::Error::new(io::ErrorKind::InvalidInput, "No files were uploaded"))),
         1 => {
-            info!("Sending single compressed PDF file");
+            let file_size = format_file_size(compressed_files[0].len() as u64);
+            info!("Sending single compressed PDF file (size: {})", file_size);
             Ok(HttpResponse::Ok()
                 .content_type("application/pdf")
                 .body(compressed_files.pop().unwrap()))
         },
-        _ => {
-            info!("Sending multiple compressed PDF files as ZIP");
+        n => {
+            info!("Sending {} compressed PDF files as ZIP", n);
             let zip_content = create_zip(compressed_files, file_names)?;
+            let zip_size = format_file_size(zip_content.len() as u64);
+            info!("ZIP file created (size: {})", zip_size);
             Ok(HttpResponse::Ok()
                 .content_type("application/zip")
                 .body(zip_content))
@@ -56,10 +86,9 @@ pub async fn post_compress_pdf(mut payload: Multipart) -> Result<HttpResponse, A
 }
 
 pub fn compress_pdf(input_path: &Path, compression_level: CompressionLevel) -> io::Result<Vec<u8>> {
-    info!("Compressing PDF file: {:?}", input_path);
-
     let input_content = fs::read(input_path)?;
-    info!("Input file size: {} bytes", input_content.len());
+    let input_size = input_content.len() as u64;
+    info!("Input file size: {}", format_file_size(input_size));
     if !input_content.starts_with(b"%PDF") {
         error!("Input file does not appear to be a valid PDF");
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid PDF file"));
@@ -100,11 +129,13 @@ pub fn compress_pdf(input_path: &Path, compression_level: CompressionLevel) -> i
     }
 
     let compressed_content = fs::read(output_path)?;
-    info!("Compressed file size: {} bytes", compressed_content.len());
+    let compressed_size = compressed_content.len() as u64;
+    let compression_ratio = (compressed_size as f64 / input_size as f64) * 100.0;
+    let size_reduction = 100.0 - compression_ratio;
+    info!("Compressed file size: {} (reduced by {:.2}%)", format_file_size(compressed_size), size_reduction);
 
     Ok(compressed_content)
 }
-
 
 fn create_zip(files: Vec<Vec<u8>>, file_names: Vec<String>) -> io::Result<Vec<u8>> {
     let mut zip_buffer = Vec::new();
@@ -113,11 +144,14 @@ fn create_zip(files: Vec<Vec<u8>>, file_names: Vec<String>) -> io::Result<Vec<u8
         let options = FileOptions::<'_, ()>::default().compression_method(zip::CompressionMethod::Stored);
 
         for (content, name) in files.into_iter().zip(file_names.into_iter()) {
-            zip.start_file(name, options)?;
+            zip.start_file(name.clone(), options)?;
             zip.write_all(&content)?;
+            debug!("Added file '{}' to ZIP (size: {})", name, format_file_size(content.len() as u64));
         }
 
         zip.finish()?;
     }
+    let zip_size = zip_buffer.len() as u64;
+    info!("ZIP file created (size: {})", format_file_size(zip_size));
     Ok(zip_buffer)
 }
