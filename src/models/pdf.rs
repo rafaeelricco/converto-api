@@ -1,6 +1,4 @@
-use serde::Deserialize;
 
-#[derive(Deserialize)]
 pub enum CompressionLevel {
     Low,
     Medium,
