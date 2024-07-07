@@ -12,7 +12,7 @@ use actix_web_actors::ws::WsResponseBuilder;
 
 use crate::controller::pdf::post_compress_pdf;
 use crate::routes::pdf::configure_pdf_routes;
-use crate::ws::WsConn;
+use crate::ws::{Status, WsConn};
 use crate::file_processing::{AddSession, FileProcessor, UpdateProgress};
 
 #[derive(Serialize)]
@@ -70,7 +70,7 @@ async fn send_test_message(
     srv: web::Data<Addr<FileProcessor>>,
 ) -> impl Responder {
     let test_id = "bf4bc249-1833-4456-9b71-90ca23a7b200";
-    srv.send(UpdateProgress { id: Uuid::parse_str(test_id).unwrap(), progress: 42.0 }).await.unwrap();
+    srv.send(UpdateProgress { id: Uuid::parse_str(test_id).unwrap(), progress: 42.0, message: "Test message".to_string(), status: Status::InProgress }).await.unwrap();
     HttpResponse::Ok().body(format!("Test message sent with ID: {}", test_id))
 }
 

@@ -1,9 +1,11 @@
-use actix::{Actor, Context, Handler, Message, MessageResult, Recipient};
+use actix::{Actor, Context, Handler, Message, Recipient};
+use serde_json::json;
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use futures::lock::Mutex;
-use crate::ws::WsMessage;
+
+use crate::ws::{Status, WsMessage};
 
 type Socket = Recipient<WsMessage>;
 
@@ -32,7 +34,13 @@ impl FileProcessor {
     pub async fn update_progress(&self, id: Uuid, progress: f32) {
         let sessions = self.sessions.lock().await;
         if let Some(socket) = sessions.get(&id) {
-            let message = format!("{{\"id\": \"{}\", \"progress\": {}, \"status\": \"In Progress\"}}", id, progress);
+            let message = json!(
+                {
+                    "id": id.to_string(),
+                    "progress": progress,
+                    "status": "in_progress"
+                }
+            ).to_string();
             let _ = socket.do_send(WsMessage(message));
         }
     }
@@ -40,7 +48,13 @@ impl FileProcessor {
     pub async fn complete_process(&self, id: Uuid) {
         let sessions = self.sessions.lock().await;
         if let Some(socket) = sessions.get(&id) {
-            let message = format!("{{\"id\": \"{}\", \"progress\": 100, \"status\": \"Completed\"}}", id);
+            let message = json!(
+                {
+                    "id": id.to_string(),
+                    "progress": 100.0,
+                    "status": "completed"
+                }
+            ).to_string();
             let _ = socket.do_send(WsMessage(message));
         }
     }
@@ -95,6 +109,8 @@ impl Handler<RemoveSession> for FileProcessor {
 pub struct UpdateProgress {
     pub id: Uuid,
     pub progress: f32,
+    pub status: Status,
+    pub message: String,
 }
 
 impl Handler<UpdateProgress> for FileProcessor {

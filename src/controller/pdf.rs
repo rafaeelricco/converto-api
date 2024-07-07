@@ -1,16 +1,13 @@
-use actix::{Addr, StreamHandler};
-use actix_http::ws;
-use tempfile::NamedTempFile;
-use actix_web_actors::ws::{Message, WsResponseBuilder};
 use actix_web::{web, Error as ActixError, HttpRequest, HttpResponse};
-use actix_multipart::Multipart;
-use futures::{StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use log::{info, error, debug};
+
+use actix::Addr;
+use tempfile::NamedTempFile;
+use actix_multipart::Multipart;
 use uuid::Uuid;
 use zip::write::FileOptions;
 use zip::ZipWriter;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use std::io::Write;
 use std::process::Command;
 use std::io;
@@ -18,23 +15,30 @@ use std::path::Path;
 use std::fs;
 use std::io::Cursor;
 
-use crate::file_processing::{AddSession, CompleteProcess, FileProcessor, UpdateProgress};
+use crate::file_processing::{FileProcessor, UpdateProgress};
 use crate::models::pdf::CompressionLevel;
 use crate::utils::format_file::format_file_size;
-use crate::ws::WsConn;
+use crate::ws::Status;
 
 pub async fn post_compress_pdf(
     req: HttpRequest,
     mut payload: Multipart,
     file_processor_addr: web::Data<Addr<FileProcessor>>,
 ) -> Result<HttpResponse, ActixError> {
-    info!("Receiving PDF files for compression");
 
-    let id_param = req.query_string();
-    let id = Uuid::parse_str(id_param).unwrap_or_else(|_| Uuid::new_v4());
-    info!("Request ID: {}", id);
+    let id_param = req.query_string().replace("id=", ""); 
+    info!("Received POST request to compress PDF files (id: {})", id_param);
 
-    file_processor_addr.send(UpdateProgress { id, progress: 0.0 }).await.unwrap();
+    let id = Uuid::parse_str(&id_param).unwrap();
+
+    let file_count = payload.size_hint().0;
+    let ws_msg = format!("Iniciando compressão de {} arquivo(s)", file_count);
+
+    file_processor_addr.send(UpdateProgress { id, progress: 0.0, status: Status::Connected, message: ws_msg }).await.unwrap(); 
+
+    actix::clock::sleep(std::time::Duration::from_secs(10)).await;
+
+    file_processor_addr.send(UpdateProgress { id, progress: 10.0, status: Status::InProgress, message: "Analisando arquivos recebidos.".to_string() }).await.unwrap();
 
     let mut compressed_files = Vec::new();
     let mut file_names = Vec::new();
@@ -42,6 +46,7 @@ pub async fn post_compress_pdf(
     while let Ok(Some(mut field)) = payload.try_next().await {
         let content_disposition = field.content_disposition();
         let filename = content_disposition.get_filename().unwrap_or("unnamed.pdf").to_string();
+        let filename_cl = filename.clone();
         let mut temp_file = NamedTempFile::new()?;
 
         while let Some(chunk) = field.next().await {
@@ -66,7 +71,7 @@ pub async fn post_compress_pdf(
         compressed_files.push(compressed_content);
         file_names.push(filename);
 
-        file_processor_addr.send(UpdateProgress { id, progress: 50.0 }).await.unwrap();
+        file_processor_addr.send(UpdateProgress { id, progress: 100.0 / file_count as f32, status: Status::InProgress, message: format!("Arquivo {} comprimido.", filename_cl) }).await.unwrap();
     }
 
     if compressed_files.is_empty() {
@@ -77,7 +82,7 @@ pub async fn post_compress_pdf(
         let file_size = format_file_size(compressed_files[0].len() as u64);
         info!("Sending single compressed PDF file (size: {})", file_size);
 
-        file_processor_addr.send(UpdateProgress { id, progress: 100.0 }).await.unwrap();
+        file_processor_addr.send(UpdateProgress { id, progress: 100.0, status: Status::Completed, message: "Compressão concluída.".to_string() }).await.unwrap();
 
         Ok(HttpResponse::Ok()
             .content_type("application/pdf")
@@ -88,7 +93,7 @@ pub async fn post_compress_pdf(
         let zip_size = format_file_size(zip_content.len() as u64);
         info!("ZIP file created (size: {})", zip_size);
 
-        file_processor_addr.send(UpdateProgress { id, progress: 100.0 }).await.unwrap();
+        file_processor_addr.send(UpdateProgress { id, progress: 100.0, status: Status::Completed, message: "Compressão concluída.".to_string() }).await.unwrap();
 
         Ok(HttpResponse::Ok()
             .content_type("application/zip")
