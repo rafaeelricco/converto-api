@@ -9,6 +9,7 @@ mod models;
 mod routes;
 mod server;
 mod utils;
+mod websocket;
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
