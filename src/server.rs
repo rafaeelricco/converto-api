@@ -68,6 +68,7 @@ pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error
 
     let server = HttpServer::new(move || {
         App::new()
+        .app_data(web::PayloadConfig::new(1024 * 1024 * 50)) 
             .app_data(db.clone())
             .app_data(states.clone())
             .route("/", web::get().to(root))
