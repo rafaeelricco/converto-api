@@ -6,11 +6,12 @@ use mongodb::Database;
 use serde::Serialize;
 use chrono::Utc;
 use log::info;
+use uuid::Uuid;
 use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
 use crate::ws::WsConn;
-use crate::file_processing::{FileProcessor, AddSession};
+use crate::file_processing::{AddSession, FileProcessor, UpdateProgress};
 
 #[derive(Serialize)]
 struct ApiInfo {
@@ -50,6 +51,27 @@ async fn ws_route(
     Ok(resp.1)
 }
 
+async fn ws_test_route(
+    req: HttpRequest,
+    stream: web::Payload,
+    srv: web::Data<Addr<FileProcessor>>,
+) -> Result<HttpResponse, ActixError> {
+    let id = Uuid::parse_str("bf4bc249-1833-4456-9b71-90ca23a7b200").unwrap();
+    let file_processor_addr = srv.get_ref().clone();
+
+    let resp = WsResponseBuilder::new(WsConn::new_with_id(id), &req, stream).start_with_addr()?;
+    file_processor_addr.send(AddSession { id, addr: resp.0.recipient()  }).await.unwrap();
+    Ok(resp.1)
+}
+
+async fn send_test_message(
+    srv: web::Data<Addr<FileProcessor>>,
+) -> impl Responder {
+    let test_id = "bf4bc249-1833-4456-9b71-90ca23a7b200";
+    srv.send(UpdateProgress { id: Uuid::parse_str(test_id).unwrap(), progress: 42.0 }).await.unwrap();
+    HttpResponse::Ok().body(format!("Test message sent with ID: {}", test_id))
+}
+
 pub fn run(db: Database) -> Result<Server, std::io::Error> {
     info!("Starting server...");
     let db = web::Data::new(db);
@@ -65,6 +87,8 @@ pub fn run(db: Database) -> Result<Server, std::io::Error> {
             .app_data(web::Data::new(processor.clone()))
             .route("/", web::get().to(root))
             .route("/ws", web::get().to(ws_route))
+            .route("/ws_test", web::get().to(ws_test_route))
+            .route("/send_test_message", web::post().to(send_test_message))
             .wrap(Logger::default())
     })
     .workers(2)

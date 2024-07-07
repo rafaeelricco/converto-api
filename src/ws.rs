@@ -35,6 +35,17 @@ impl WsConn {
         }
     }
 
+    pub fn new_with_id(id: Uuid) -> Self {
+        WsConn {
+            id,
+            state: State {
+                progress: 0.0,
+                status: "Connecting".to_string(),
+            },
+            hb: Instant::now(),
+        }
+    }
+
     fn send_status(&self, ctx: &mut ws::WebsocketContext<Self>) {
         let status_message = format!(
             "{{\"id\": \"{}\", \"progress\": {}, \"status\": \"{}\"}}",
