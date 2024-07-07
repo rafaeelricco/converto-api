@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use log::{info, error};
 
 use crate::routes::pdf::configure_pdf_routes;
-use crate::websocket::WebSocketConnection;
+// use crate::websocket::WebSocketConnection;
 
 
 #[derive(Serialize)]
@@ -37,24 +37,24 @@ async fn root() -> impl Responder {
     HttpResponse::Ok().json(api_infos)
 }
 
-async fn websocket(
-    req: HttpRequest,
-    stream: web::Payload,
-    states: web::Data<Arc<Mutex<HashMap<String, String>>>>,
-) -> Result<HttpResponse, actix_web::Error> {
-    info!("WebSocket connection attempt");
-    let ws = WebSocketConnection::new(states.get_ref().clone());
-    match ws::start(ws, &req, stream) {
-        Ok(response) => {
-            info!("WebSocket connection established successfully");
-            Ok(response)
-        },
-        Err(e) => {
-            error!("Failed to establish WebSocket connection: {:?}", e);
-            Err(e)
-        }
-    }
-}
+// async fn websocket(
+//     req: HttpRequest,
+//     stream: web::Payload,
+//     states: web::Data<Arc<Mutex<HashMap<String, String>>>>,
+// ) -> Result<HttpResponse, actix_web::Error> {
+//     info!("WebSocket connection attempt");
+//     let ws = WebSocketConnection::new(states.get_ref().clone());
+//     match ws::start(ws, &req, stream) {
+//         Ok(response) => {
+//             info!("WebSocket connection established successfully");
+//             Ok(response)
+//         },
+//         Err(e) => {
+//             error!("Failed to establish WebSocket connection: {:?}", e);
+//             Err(e)
+//         }
+//     }
+// }
 
 
 pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error> {
@@ -72,7 +72,7 @@ pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error
             .app_data(db.clone())
             .app_data(states.clone())
             .route("/", web::get().to(root))
-            .route("/ws", web::get().to(websocket))
+            // .route("/ws", web::get().to(websocket))
             .configure(configure_pdf_routes)
     })
     .listen(listener)?

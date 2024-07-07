@@ -16,20 +16,20 @@ use crate::models::pdf::CompressionLevel;
 use crate::utils::format_file::format_file_size;
 
 // use crate::websocket::update_websocket_state;
-// use std::collections::HashMap;
-// use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 
 
 pub async fn post_compress_pdf(
     mut payload: Multipart,
-    // states: web::Data<Arc<Mutex<HashMap<String, String>>>>,
-    // id: String
+    id: String
 ) -> Result<HttpResponse, ActixError> {
     info!("Receiving PDF files for compression");
 
-    // update_websocket_state(states, id, "compressing".to_string()).await;
-    
+    // update_websocket_state(id.clone(), "Iniciando compressão do PDF...".to_string()).await;
+
+
     let mut compressed_files = Vec::new();
     let mut file_names = Vec::new();
 

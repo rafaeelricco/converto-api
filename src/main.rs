@@ -2,6 +2,7 @@ use server::run;
 use db::mongodb::init_db_pool;
 use log::{info, warn, error};
 use std::{env, net::TcpListener};
+use actix_web::main;
 
 mod db;
 mod controller;
@@ -11,7 +12,7 @@ mod server;
 mod utils;
 mod websocket;
 
-#[tokio::main]
+#[actix_web::main]
 async fn main() -> std::io::Result<()> {
     match dotenv::dotenv() {
         Ok(_) => info!("Successfully loaded .env file"),
