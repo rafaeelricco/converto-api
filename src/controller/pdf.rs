@@ -1,10 +1,15 @@
+use actix::StreamHandler;
+use actix_http::ws;
 use tempfile::NamedTempFile;
+use actix_web_actors::ws::Message;
 use actix_web::{web, Error as ActixError, HttpResponse};
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use log::{info, error, debug};
 use zip::write::FileOptions;
 use zip::ZipWriter;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use std::io::Write;
 use std::process::Command;
 use std::io;
@@ -15,20 +20,13 @@ use std::io::Cursor;
 use crate::models::pdf::CompressionLevel;
 use crate::utils::format_file::format_file_size;
 
-// use crate::websocket::update_websocket_state;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-
-
 
 pub async fn post_compress_pdf(
     mut payload: Multipart,
-    id: String
+    id: web::Path<String>
 ) -> Result<HttpResponse, ActixError> {
     info!("Receiving PDF files for compression");
-
-    // update_websocket_state(id.clone(), "Iniciando compressão do PDF...".to_string()).await;
-
+    info!("ID: {}", id.clone());
 
     let mut compressed_files = Vec::new();
     let mut file_names = Vec::new();

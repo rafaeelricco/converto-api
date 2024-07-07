@@ -2,7 +2,6 @@ use server::run;
 use db::mongodb::init_db_pool;
 use log::{info, warn, error};
 use std::{env, net::TcpListener};
-use actix_web::main;
 
 mod db;
 mod controller;
@@ -11,6 +10,7 @@ mod routes;
 mod server;
 mod utils;
 mod websocket;
+mod session;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -25,7 +25,6 @@ async fn main() -> std::io::Result<()> {
     env_logger::init();
     info!("Logging initialized with RUST_LOG={}", env::var("RUST_LOG").unwrap_or_else(|_| "info,actix_web=debug".to_string()));
 
-    info!("Starting server initialization...");
 
     let address = match env::var("HOST") {
         Ok(addr) => addr,
@@ -43,14 +42,11 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    info!("Attempting to bind to address: {}", address);
     let listener = match TcpListener::bind(&address) {
         Ok(l) => {
-            info!("Successfully bound to address: {}", address);
             l
         },
         Err(e) => {
-            error!("Failed to bind to address {}: {}", address, e);
             return Err(e);
         }
     };
@@ -58,7 +54,6 @@ async fn main() -> std::io::Result<()> {
     info!("Initializing database connection pool...");
     let db_pool = match init_db_pool(&db_url).await {
         Ok(pool) => {
-            info!("Successfully initialized MongoDB connection pool");
             pool
         },
         Err(e) => {
@@ -68,8 +63,6 @@ async fn main() -> std::io::Result<()> {
     };
 
     let db = db_pool.database("rust-actix-web-mongodb");
-    info!("Using database: rust-actix-web-mongodb");
 
-    info!("Server initialization complete. Starting server at http://{}", address);
     run(listener, db)?.await
 }
