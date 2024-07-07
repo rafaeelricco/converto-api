@@ -1,7 +1,7 @@
 use server::run;
 use db::mongodb::init_db_pool;
 use log::{info, warn, error};
-use std::{env, net::TcpListener};
+use std::env;
 
 mod db;
 mod controller;
@@ -9,8 +9,8 @@ mod models;
 mod routes;
 mod server;
 mod utils;
-mod websocket;
-mod session;
+mod ws;
+mod file_processing;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -24,15 +24,6 @@ async fn main() -> std::io::Result<()> {
     }
     env_logger::init();
     info!("Logging initialized with RUST_LOG={}", env::var("RUST_LOG").unwrap_or_else(|_| "info,actix_web=debug".to_string()));
-
-
-    let address = match env::var("HOST") {
-        Ok(addr) => addr,
-        Err(_) => {
-            error!("Environment variable 'HOST' is not set. Please define it in your .env file.");
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "HOST environment variable not set"));
-        }
-    };
 
     let db_url = match env::var("DB_URL") {
         Ok(url) => url,

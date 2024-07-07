@@ -1,24 +1,16 @@
-use actix::*;
-use actix_files::Files;
-use actix_web::{middleware::Logger, Error, HttpRequest};
-use actix_web_actors::ws;
-use actix::Actor;
 use actix_web::dev::Server;
-use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-
-use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
-use std::{sync:: atomic::Ordering, time::Instant};
-
-use chrono::Utc;
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error as ActixError};
+use actix_web::middleware::Logger;
+use actix::prelude::*;
 use mongodb::Database;
 use serde::Serialize;
+use chrono::Utc;
 use log::info;
+use std::sync::atomic::AtomicUsize;
+use actix_web_actors::ws::WsResponseBuilder;
 
-use crate::routes::pdf;
-use crate::{session, websocket};
-
-
+use crate::ws::WsConn;
+use crate::file_processing::{FileProcessor, AddSession};
 
 #[derive(Serialize)]
 struct ApiInfo {
@@ -44,47 +36,35 @@ async fn root() -> impl Responder {
     HttpResponse::Ok().json(api_infos)
 }
 
-
-async fn operation_status_route(
+async fn ws_route(
     req: HttpRequest,
     stream: web::Payload,
-    srv: web::Data<Addr<websocket::OperationStatusServer>>,
-) -> Result<HttpResponse, Error> {
-    ws::start(
-        session::WsSession {
-            addr: srv.get_ref().clone(),
-            hb: Instant::now(),
-            id: "".to_string(),
-        },
-        &req,
-        stream,
-    )
-}
+    srv: web::Data<Addr<FileProcessor>>,
+) -> Result<HttpResponse, ActixError> {
+    let ws = WsConn::new();
+    let id = ws.id;
+    let file_processor_addr = srv.get_ref().clone();
 
-async fn get_count(count: web::Data<AtomicUsize>) -> impl Responder {
-    let current_count = count.load(Ordering::SeqCst);
-    format!("Visitors: {current_count}")
+    let resp = WsResponseBuilder::new(ws, &req, stream).start_with_addr()?;
+    file_processor_addr.send(AddSession { id, addr: resp.0.recipient()  }).await.unwrap();
+    Ok(resp.1)
 }
-
 
 pub fn run(db: Database) -> Result<Server, std::io::Error> {
     info!("Starting server...");
     let db = web::Data::new(db);
 
-    let app_state = Arc::new(AtomicUsize::new(0));
-    let server = websocket::OperationStatusServer::new().start();
+    let app_state = web::Data::new(AtomicUsize::new(0));
+    let processor = FileProcessor::new().start();
 
     let server = HttpServer::new(move || {
         App::new()
-        .app_data(web::PayloadConfig::new(1024 * 1024 * 50))
-        .app_data(db.clone())
-            .app_data(web::Data::new(app_state.clone()))
-            .app_data(web::Data::new(server.clone()))
-            .configure(pdf::configure_pdf_routes)
-            .route("/ws", web::get().to(operation_status_route))
-            .route("/count", web::get().to(get_count))
+            .app_data(web::PayloadConfig::new(1024 * 1024 * 50))
+            .app_data(db.clone())
+            .app_data(app_state.clone())
+            .app_data(web::Data::new(processor.clone()))
             .route("/", web::get().to(root))
-            .service(Files::new("/static", "./static"))
+            .route("/ws", web::get().to(ws_route))
             .wrap(Logger::default())
     })
     .workers(2)

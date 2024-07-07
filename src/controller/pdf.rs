@@ -19,21 +19,14 @@ use std::io::Cursor;
 
 use crate::models::pdf::CompressionLevel;
 use crate::utils::format_file::format_file_size;
-use crate::websocket::{OperationStatus, OperationStatusServer, StatusUpdate};
-
 
 pub async fn post_compress_pdf(
     mut payload: Multipart,
-    status_server: web::Data<Addr<OperationStatusServer>>
 ) -> Result<HttpResponse, ActixError> {
     info!("Receiving PDF files for compression");
-    let operation_id = uuid::Uuid::new_v4().to_string();
+    // let operation_id = uuid::Uuid::new_v4().to_string();
+    let operation_id = "compress_pdf_operation";
 
-    status_server.do_send(StatusUpdate(OperationStatus {
-        operation_id: operation_id.clone(),
-        status: "Started".to_string(),
-        progress: 0.0,
-    }));
 
     let mut compressed_files = Vec::new();
     let mut file_names = Vec::new();
@@ -65,11 +58,7 @@ pub async fn post_compress_pdf(
         compressed_files.push(compressed_content);
         file_names.push(filename);
 
-        status_server.do_send(StatusUpdate(OperationStatus {
-            operation_id: operation_id.clone(),
-            status: "Processing".to_string(),
-            progress: (compressed_files.len() as f32) / (file_names.len() as f32) * 100.0,
-        }));
+
     }
 
     let result = match compressed_files.len() {
@@ -91,12 +80,6 @@ pub async fn post_compress_pdf(
                 .body(zip_content))
         }
     };
-
-    status_server.do_send(StatusUpdate(OperationStatus {
-        operation_id: operation_id.clone(),
-        status: "Completed".to_string(),
-        progress: 100.0,
-    }));
 
     result
 }
