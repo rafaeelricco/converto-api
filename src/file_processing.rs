@@ -31,28 +31,34 @@ impl FileProcessor {
         sessions.remove(&id);
     }
 
-    pub async fn update_progress(&self, id: Uuid, progress: f32) {
+    pub async fn update_progress(&self, id: Uuid, progress: f32, status: Status, message: String) {
         let sessions = self.sessions.lock().await;
         if let Some(socket) = sessions.get(&id) {
             let message = json!(
                 {
                     "id": id.to_string(),
-                    "progress": progress,
-                    "status": "in_progress"
+                    "state": {
+                        "progress": progress,
+                        "status": status,
+                        "message": message
+                    }
                 }
             ).to_string();
             let _ = socket.do_send(WsMessage(message));
         }
     }
 
-    pub async fn complete_process(&self, id: Uuid) {
+    pub async fn complete_process(&self, id: Uuid, progress: f32, status: Status, message: String) {
         let sessions = self.sessions.lock().await;
         if let Some(socket) = sessions.get(&id) {
             let message = json!(
                 {
                     "id": id.to_string(),
-                    "progress": 100.0,
-                    "status": "completed"
+                    "state": {
+                        "progress": progress,
+                        "status": status,
+                        "message": message
+                    }
                 }
             ).to_string();
             let _ = socket.do_send(WsMessage(message));
@@ -119,10 +125,12 @@ impl Handler<UpdateProgress> for FileProcessor {
     fn handle(&mut self, msg: UpdateProgress, _: &mut Context<Self>) {
         let id = msg.id;
         let progress = msg.progress;
+        let status = msg.status;
+        let message = msg.message;
         let processor = self.clone();
 
         actix::spawn(async move {
-            processor.update_progress(id, progress).await;
+            processor.update_progress(id, progress, status, message).await;
         });
     }
 }
@@ -131,6 +139,9 @@ impl Handler<UpdateProgress> for FileProcessor {
 #[rtype(result = "()")]
 pub struct CompleteProcess {
     pub id: Uuid,
+    pub progress: f32,
+    pub status: Status,
+    pub message: String,
 }
 
 impl Handler<CompleteProcess> for FileProcessor {
@@ -138,10 +149,13 @@ impl Handler<CompleteProcess> for FileProcessor {
 
     fn handle(&mut self, msg: CompleteProcess, _: &mut Context<Self>) {
         let id = msg.id;
+        let progress = msg.progress;
+        let status = msg.status;
+        let message = msg.message;
         let processor = self.clone();
 
         actix::spawn(async move {
-            processor.complete_process(id).await;
+            processor.complete_process(id, progress, status, message).await;
         });
     }
 }

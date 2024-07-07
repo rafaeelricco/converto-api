@@ -1,6 +1,6 @@
 use actix::{Actor, Running, StreamHandler, Handler, Message, AsyncContext, ActorContext};
-use actix::prelude::Recipient;
 use actix_web_actors::ws;
+use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 use std::time::{Duration, Instant};
@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Status {
     Connecting,
     Connected,
@@ -16,7 +17,6 @@ pub enum Status {
     Completed,
     Disconnected
 }
-
 pub struct State {
     progress: f32,
     status: Status,
@@ -49,8 +49,11 @@ impl WsConn {
     fn send_status(&self, ctx: &mut ws::WebsocketContext<Self>) {
         let status_message = json!({
             "id": self.id.to_string(),
-            "progress": self.state.progress,
-            "status": format!("{:?}", self.state.status)
+            "state": {
+                "progress": self.state.progress,
+                "status": self.state.status,
+                "message": self.state.message,
+            }
         }).to_string();
         ctx.text(status_message);
     }

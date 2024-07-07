@@ -15,7 +15,7 @@ use std::path::Path;
 use std::fs;
 use std::io::Cursor;
 
-use crate::file_processing::{FileProcessor, UpdateProgress};
+use crate::file_processing::{CompleteProcess, FileProcessor, UpdateProgress};
 use crate::models::pdf::CompressionLevel;
 use crate::utils::format_file::format_file_size;
 use crate::ws::Status;
@@ -31,8 +31,7 @@ pub async fn post_compress_pdf(
 
     let id = Uuid::parse_str(&id_param).unwrap();
 
-    let file_count = payload.size_hint().0;
-    let ws_msg = format!("Iniciando compressão de {} arquivo(s)", file_count);
+    let ws_msg = format!("Iniciando compressão de arquivos.");
 
     file_processor_addr.send(UpdateProgress { id, progress: 0.0, status: Status::Connected, message: ws_msg }).await.unwrap(); 
 
@@ -44,9 +43,9 @@ pub async fn post_compress_pdf(
     let mut file_names = Vec::new();
 
     while let Ok(Some(mut field)) = payload.try_next().await {
+        file_processor_addr.send(UpdateProgress { id, progress: 25.00, status: Status::InProgress, message: "Processando...".to_string() }).await.unwrap();
         let content_disposition = field.content_disposition();
         let filename = content_disposition.get_filename().unwrap_or("unnamed.pdf").to_string();
-        let filename_cl = filename.clone();
         let mut temp_file = NamedTempFile::new()?;
 
         while let Some(chunk) = field.next().await {
@@ -71,7 +70,7 @@ pub async fn post_compress_pdf(
         compressed_files.push(compressed_content);
         file_names.push(filename);
 
-        file_processor_addr.send(UpdateProgress { id, progress: 100.0 / file_count as f32, status: Status::InProgress, message: format!("Arquivo {} comprimido.", filename_cl) }).await.unwrap();
+        file_processor_addr.send(UpdateProgress { id, progress: 75.00, status: Status::InProgress, message: "Finalizando compressão...".to_string() }).await.unwrap();
     }
 
     if compressed_files.is_empty() {
@@ -82,7 +81,7 @@ pub async fn post_compress_pdf(
         let file_size = format_file_size(compressed_files[0].len() as u64);
         info!("Sending single compressed PDF file (size: {})", file_size);
 
-        file_processor_addr.send(UpdateProgress { id, progress: 100.0, status: Status::Completed, message: "Compressão concluída.".to_string() }).await.unwrap();
+        file_processor_addr.send(CompleteProcess { id, progress: 100.0, status: Status::Completed, message: "Compressão concluída.".to_string() }).await.unwrap();
 
         Ok(HttpResponse::Ok()
             .content_type("application/pdf")
@@ -93,7 +92,7 @@ pub async fn post_compress_pdf(
         let zip_size = format_file_size(zip_content.len() as u64);
         info!("ZIP file created (size: {})", zip_size);
 
-        file_processor_addr.send(UpdateProgress { id, progress: 100.0, status: Status::Completed, message: "Compressão concluída.".to_string() }).await.unwrap();
+        file_processor_addr.send(CompleteProcess { id, progress: 100.0, status: Status::Completed, message: "Compressão concluída.".to_string() }).await.unwrap();
 
         Ok(HttpResponse::Ok()
             .content_type("application/zip")
