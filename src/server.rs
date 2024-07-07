@@ -1,31 +1,22 @@
+use actix::*;
+use actix_files::Files;
+use actix_web::{middleware::Logger, Error, HttpRequest};
+use actix_web_actors::ws;
 use actix::Actor;
 use actix_web::dev::Server;
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
+
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use std::{sync:: atomic::Ordering, time::Instant};
+
 use chrono::Utc;
 use mongodb::Database;
 use serde::Serialize;
-use std::net::TcpListener;
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use log::info;
 
+use crate::routes::pdf;
 use crate::{session, websocket};
-
-use std::{
-    sync::{
-        atomic::Ordering,
-    },
-    time::Instant,
-};
-
-use actix::*;
-use actix_files::{Files, NamedFile};
-use actix_web::{
-    middleware::Logger, Error, HttpRequest,
-};
-use actix_web_actors::ws;
-
 
 
 
@@ -54,37 +45,34 @@ async fn root() -> impl Responder {
 }
 
 
-async fn chat_route(
+async fn operation_status_route(
     req: HttpRequest,
     stream: web::Payload,
-    srv: web::Data<Addr<websocket::ChatServer>>,
+    srv: web::Data<Addr<websocket::OperationStatusServer>>,
 ) -> Result<HttpResponse, Error> {
     ws::start(
-        session::WsChatSession {
-            id: 0,
-            hb: Instant::now(),
-            room: "main".to_owned(),
-            name: None,
+        session::WsSession {
             addr: srv.get_ref().clone(),
+            hb: Instant::now(),
+            id: "".to_string(),
         },
         &req,
         stream,
     )
 }
 
-/// Displays state
 async fn get_count(count: web::Data<AtomicUsize>) -> impl Responder {
     let current_count = count.load(Ordering::SeqCst);
     format!("Visitors: {current_count}")
 }
 
 
-pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error> {
+pub fn run(db: Database) -> Result<Server, std::io::Error> {
     info!("Starting server...");
     let db = web::Data::new(db);
 
     let app_state = Arc::new(AtomicUsize::new(0));
-    let server = websocket::ChatServer::new(app_state.clone()).start();
+    let server = websocket::OperationStatusServer::new().start();
 
     let server = HttpServer::new(move || {
         App::new()
@@ -92,8 +80,9 @@ pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error
         .app_data(db.clone())
             .app_data(web::Data::new(app_state.clone()))
             .app_data(web::Data::new(server.clone()))
+            .configure(pdf::configure_pdf_routes)
+            .route("/ws", web::get().to(operation_status_route))
             .route("/count", web::get().to(get_count))
-            .route("/ws", web::get().to(chat_route))
             .route("/", web::get().to(root))
             .service(Files::new("/static", "./static"))
             .wrap(Logger::default())
@@ -101,8 +90,6 @@ pub fn run(listener: TcpListener, db: Database) -> Result<Server, std::io::Error
     .workers(2)
     .bind(("127.0.0.1", 5000))?
     .run();
-
-
 
     info!("Server running at http://127.0.0.1:5000");
     info!("WebSocket server running at ws://127.0.0.1:5000/ws");

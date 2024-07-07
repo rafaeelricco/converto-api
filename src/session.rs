@@ -1,85 +1,47 @@
 use std::time::{Duration, Instant};
-
 use actix::prelude::*;
 use actix_web_actors::ws;
+use crate::websocket::{Connect, Disconnect, StatusUpdate, OperationStatusServer};
 
-use crate::websocket;
-
-/// How often heartbeat pings are sent
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
-
-/// How long before lack of client response causes a timeout
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug)]
-pub struct WsChatSession {
-    /// unique session id
-    pub id: usize,
 
-    /// Client must send ping at least once per 10 seconds (CLIENT_TIMEOUT),
-    /// otherwise we drop connection.
+pub struct WsSession {
+    pub id: String,
     pub hb: Instant,
-
-    /// joined room
-    pub room: String,
-
-    /// peer name
-    pub name: Option<String>,
-
-    /// Chat websocket
-    pub addr: Addr<websocket::ChatServer>,
+    pub addr: Addr<OperationStatusServer>,
 }
 
-impl WsChatSession {
-    /// helper method that sends ping to client every 5 seconds (HEARTBEAT_INTERVAL).
-    ///
-    /// also this method checks heartbeats from client
+impl WsSession {
     fn hb(&self, ctx: &mut ws::WebsocketContext<Self>) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
-            // check client heartbeats
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
-                // heartbeat timed out
                 println!("Websocket Client heartbeat failed, disconnecting!");
-
-                // notify chat websocket
-                act.addr.do_send(websocket::Disconnect { id: act.id });
-
-                // stop actor
+                act.addr.do_send(Disconnect { id: act.id.clone() });
                 ctx.stop();
-
-                // don't try to send a ping
                 return;
             }
-
             ctx.ping(b"");
         });
     }
 }
 
-impl Actor for WsChatSession {
+impl Actor for WsSession {
     type Context = ws::WebsocketContext<Self>;
 
-    /// Method is called on actor start.
-    /// We register ws session with ChatServer
     fn started(&mut self, ctx: &mut Self::Context) {
-        // we'll start heartbeat process on session start.
         self.hb(ctx);
 
-        // register self in chat websocket. `AsyncContext::wait` register
-        // future within context, but context waits until this future resolves
-        // before processing any other events.
-        // HttpContext::state() is instance of WsChatSessionState, state is shared
-        // across all routes within application
         let addr = ctx.address();
         self.addr
-            .send(websocket::Connect {
+            .send(Connect {
                 addr: addr.recipient(),
             })
             .into_actor(self)
             .then(|res, act, ctx| {
                 match res {
                     Ok(res) => act.id = res,
-                    // something is wrong with chat websocket
                     _ => ctx.stop(),
                 }
                 fut::ready(())
@@ -88,115 +50,48 @@ impl Actor for WsChatSession {
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        // notify chat websocket
-        self.addr.do_send(websocket::Disconnect { id: self.id });
+        self.addr.do_send(Disconnect { id: self.id.clone() });
         Running::Stop
     }
 }
 
-/// Handle messages from chat websocket, we simply send it to peer websocket
-impl Handler<websocket::Message> for WsChatSession {
+impl Handler<StatusUpdate> for WsSession {
     type Result = ();
 
-    fn handle(&mut self, msg: websocket::Message, ctx: &mut Self::Context) {
-        ctx.text(msg.0);
+    fn handle(&mut self, msg: StatusUpdate, ctx: &mut Self::Context) {
+        ctx.text(serde_json::to_string(&msg).unwrap());
     }
 }
 
-/// WebSocket message handler
-impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsChatSession {
+impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        let msg = match msg {
-            Err(_) => {
-                ctx.stop();
-                return;
-            }
-            Ok(msg) => msg,
-        };
-
-        log::debug!("WEBSOCKET MESSAGE: {msg:?}");
         match msg {
-            ws::Message::Ping(msg) => {
+            Ok(ws::Message::Ping(msg)) => {
                 self.hb = Instant::now();
                 ctx.pong(&msg);
             }
-            ws::Message::Pong(_) => {
+            Ok(ws::Message::Pong(_)) => {
                 self.hb = Instant::now();
             }
-            ws::Message::Text(text) => {
+            Ok(ws::Message::Text(text)) => {
                 let m = text.trim();
-                // we check for /sss type of messages
-                if m.starts_with('/') {
-                    let v: Vec<&str> = m.splitn(2, ' ').collect();
-                    match v[0] {
-                        "/list" => {
-                            // Send ListRooms message to chat websocket and wait for
-                            // response
-                            println!("List rooms");
-                            self.addr
-                                .send(websocket::ListRooms)
-                                .into_actor(self)
-                                .then(|res, _, ctx| {
-                                    match res {
-                                        Ok(rooms) => {
-                                            for room in rooms {
-                                                ctx.text(room);
-                                            }
-                                        }
-                                        _ => println!("Something is wrong"),
-                                    }
-                                    fut::ready(())
-                                })
-                                .wait(ctx)
-                            // .wait(ctx) pauses all events in context,
-                            // so actor wont receive any new messages until it get list
-                            // of rooms back
-                        }
-                        "/join" => {
-                            if v.len() == 2 {
-                                v[1].clone_into(&mut self.room);
-                                self.addr.do_send(websocket::Join {
-                                    id: self.id,
-                                    name: self.room.clone(),
-                                });
-
-                                ctx.text("joined");
-                            } else {
-                                ctx.text("!!! room name is required");
-                            }
-                        }
-                        "/name" => {
-                            if v.len() == 2 {
-                                self.name = Some(v[1].to_owned());
-                            } else {
-                                ctx.text("!!! name is required");
-                            }
-                        }
-                        _ => ctx.text(format!("!!! unknown command: {m:?}")),
-                    }
-                } else {
-                    let msg = if let Some(ref name) = self.name {
-                        format!("{name}: {m}")
-                    } else {
-                        m.to_owned()
-                    };
-                    // send message to chat websocket
-                    self.addr.do_send(websocket::ClientMessage {
-                        id: self.id,
-                        msg,
-                        room: self.room.clone(),
-                    })
-                }
+                // Aqui você pode implementar lógica para lidar com comandos específicos
+                // Por exemplo, solicitar atualizações de status para uma operação específica
+                println!("Received message: {}", m);
             }
-            ws::Message::Binary(_) => println!("Unexpected binary"),
-            ws::Message::Close(reason) => {
+            Ok(ws::Message::Binary(_)) => println!("Unexpected binary"),
+            Ok(ws::Message::Close(reason)) => {
                 ctx.close(reason);
                 ctx.stop();
             }
-            ws::Message::Continuation(_) => {
+            Ok(ws::Message::Continuation(_)) => {
                 ctx.stop();
             }
-            ws::Message::Nop => (),
+            Ok(ws::Message::Nop) => (),
+            Err(e) => {
+                println!("Error: {:?}", e);
+                ctx.stop();
+            }
         }
     }
 }

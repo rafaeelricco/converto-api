@@ -42,15 +42,6 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    let listener = match TcpListener::bind(&address) {
-        Ok(l) => {
-            l
-        },
-        Err(e) => {
-            return Err(e);
-        }
-    };
-
     info!("Initializing database connection pool...");
     let db_pool = match init_db_pool(&db_url).await {
         Ok(pool) => {
@@ -64,5 +55,5 @@ async fn main() -> std::io::Result<()> {
 
     let db = db_pool.database("rust-actix-web-mongodb");
 
-    run(listener, db)?.await
+    run(db)?.await
 }
