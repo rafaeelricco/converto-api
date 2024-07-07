@@ -3,13 +3,15 @@ use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Erro
 use actix_web::middleware::Logger;
 use actix::prelude::*;
 use mongodb::Database;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use log::info;
 use uuid::Uuid;
 use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
+use crate::controller::pdf::post_compress_pdf;
+use crate::routes::pdf::configure_pdf_routes;
 use crate::ws::WsConn;
 use crate::file_processing::{AddSession, FileProcessor, UpdateProgress};
 
@@ -37,19 +39,19 @@ async fn root() -> impl Responder {
     HttpResponse::Ok().json(api_infos)
 }
 
-async fn ws_route(
-    req: HttpRequest,
-    stream: web::Payload,
-    srv: web::Data<Addr<FileProcessor>>,
-) -> Result<HttpResponse, ActixError> {
-    let ws = WsConn::new();
-    let id = ws.id;
-    let file_processor_addr = srv.get_ref().clone();
+// async fn ws_route(
+//     req: HttpRequest,
+//     stream: web::Payload,
+//     srv: web::Data<Addr<FileProcessor>>,
+// ) -> Result<HttpResponse, ActixError> {
+//     let ws = WsConn::new();
+//     let id = ws.id;
+//     let file_processor_addr = srv.get_ref().clone();
 
-    let resp = WsResponseBuilder::new(ws, &req, stream).start_with_addr()?;
-    file_processor_addr.send(AddSession { id, addr: resp.0.recipient()  }).await.unwrap();
-    Ok(resp.1)
-}
+//     let resp = WsResponseBuilder::new(ws, &req, stream).start_with_addr()?;
+//     file_processor_addr.send(AddSession { id, addr: resp.0.recipient()  }).await.unwrap();
+//     Ok(resp.1)
+// }
 
 async fn ws_test_route(
     req: HttpRequest,
@@ -59,7 +61,7 @@ async fn ws_test_route(
     let id = Uuid::parse_str("bf4bc249-1833-4456-9b71-90ca23a7b200").unwrap();
     let file_processor_addr = srv.get_ref().clone();
 
-    let resp = WsResponseBuilder::new(WsConn::new_with_id(id), &req, stream).start_with_addr()?;
+    let resp = WsResponseBuilder::new(WsConn::new(id), &req, stream).start_with_addr()?;
     file_processor_addr.send(AddSession { id, addr: resp.0.recipient()  }).await.unwrap();
     Ok(resp.1)
 }
@@ -71,6 +73,27 @@ async fn send_test_message(
     srv.send(UpdateProgress { id: Uuid::parse_str(test_id).unwrap(), progress: 42.0 }).await.unwrap();
     HttpResponse::Ok().body(format!("Test message sent with ID: {}", test_id))
 }
+
+#[derive(Deserialize)]
+struct WsParams {
+    id: String,
+}
+
+async fn ws_with_id_route(
+    req: HttpRequest,
+    stream: web::Payload,
+    srv: web::Data<Addr<FileProcessor>>,
+    params: web::Query<WsParams>,
+) -> Result<HttpResponse, ActixError> {
+    let id = Uuid::parse_str(&params.id).unwrap_or_else(|_| Uuid::new_v4());
+    let ws = WsConn::new(id);
+    let file_processor_addr = srv.get_ref().clone();
+
+    let resp = WsResponseBuilder::new(ws, &req, stream).start_with_addr()?;
+    file_processor_addr.send(AddSession { id, addr: resp.0.recipient() }).await.unwrap();
+    Ok(resp.1)
+}
+
 
 pub fn run(db: Database) -> Result<Server, std::io::Error> {
     info!("Starting server...");
@@ -86,9 +109,10 @@ pub fn run(db: Database) -> Result<Server, std::io::Error> {
             .app_data(app_state.clone())
             .app_data(web::Data::new(processor.clone()))
             .route("/", web::get().to(root))
-            .route("/ws", web::get().to(ws_route))
+            .route("/ws", web::get().to(ws_with_id_route))
             .route("/ws_test", web::get().to(ws_test_route))
             .route("/send_test_message", web::post().to(send_test_message))
+            .route("/compress", web::post().to(post_compress_pdf))
             .wrap(Logger::default())
     })
     .workers(2)

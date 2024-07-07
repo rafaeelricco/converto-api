@@ -1,4 +1,4 @@
-use actix::{Actor, Context, Handler, Message, Recipient};
+use actix::{Actor, Context, Handler, Message, MessageResult, Recipient};
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;

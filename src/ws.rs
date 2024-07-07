@@ -1,6 +1,5 @@
 use actix::{Actor, Running, StreamHandler, Handler, Message, AsyncContext, ActorContext};
 use actix::prelude::Recipient;
-use actix_multipart::form::text::Text;
 use actix_web_actors::ws;
 use uuid::Uuid;
 use std::time::{Duration, Instant};
@@ -24,18 +23,7 @@ pub struct WsConn {
 pub struct WsMessage(pub String);
 
 impl WsConn {
-    pub fn new() -> Self {
-        WsConn {
-            id: Uuid::new_v4(),
-            state: State {
-                progress: 0.0,
-                status: "Connecting".to_string(),
-            },
-            hb: Instant::now(),
-        }
-    }
-
-    pub fn new_with_id(id: Uuid) -> Self {
+    pub fn new(id: Uuid) -> Self {
         WsConn {
             id,
             state: State {

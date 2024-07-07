@@ -1,11 +1,12 @@
 use actix::{Addr, StreamHandler};
 use actix_http::ws;
 use tempfile::NamedTempFile;
-use actix_web_actors::ws::Message;
-use actix_web::{web, Error as ActixError, HttpResponse};
+use actix_web_actors::ws::{Message, WsResponseBuilder};
+use actix_web::{web, Error as ActixError, HttpRequest, HttpResponse};
 use actix_multipart::Multipart;
 use futures::{StreamExt, TryStreamExt};
 use log::{info, error, debug};
+use uuid::Uuid;
 use zip::write::FileOptions;
 use zip::ZipWriter;
 use std::sync::{Arc, Mutex};
@@ -17,16 +18,23 @@ use std::path::Path;
 use std::fs;
 use std::io::Cursor;
 
+use crate::file_processing::{AddSession, CompleteProcess, FileProcessor, UpdateProgress};
 use crate::models::pdf::CompressionLevel;
 use crate::utils::format_file::format_file_size;
+use crate::ws::WsConn;
 
 pub async fn post_compress_pdf(
+    req: HttpRequest,
     mut payload: Multipart,
+    file_processor_addr: web::Data<Addr<FileProcessor>>,
 ) -> Result<HttpResponse, ActixError> {
     info!("Receiving PDF files for compression");
-    // let operation_id = uuid::Uuid::new_v4().to_string();
-    let operation_id = "compress_pdf_operation";
 
+    let id_param = req.query_string();
+    let id = Uuid::parse_str(id_param).unwrap_or_else(|_| Uuid::new_v4());
+    info!("Request ID: {}", id);
+
+    file_processor_addr.send(UpdateProgress { id, progress: 0.0 }).await.unwrap();
 
     let mut compressed_files = Vec::new();
     let mut file_names = Vec::new();
@@ -48,7 +56,7 @@ pub async fn post_compress_pdf(
         let compressed_size = compressed_content.len() as u64;
         let compression_ratio = (compressed_size as f64 / original_size as f64) * 100.0;
         let size_reduction = 100.0 - compression_ratio;
-        
+
         debug!("File '{}' compressed: {} -> {} (reduced by {:.2}%)", 
                filename, 
                format_file_size(original_size), 
@@ -58,27 +66,33 @@ pub async fn post_compress_pdf(
         compressed_files.push(compressed_content);
         file_names.push(filename);
 
-
+        file_processor_addr.send(UpdateProgress { id, progress: 50.0 }).await.unwrap();
     }
 
-    let result = match compressed_files.len() {
-        0 => Err(ActixError::from(io::Error::new(io::ErrorKind::InvalidInput, "No files were uploaded"))),
-        1 => {
-            let file_size = format_file_size(compressed_files[0].len() as u64);
-            info!("Sending single compressed PDF file (size: {})", file_size);
-            Ok(HttpResponse::Ok()
-                .content_type("application/pdf")
-                .body(compressed_files.pop().unwrap()))
-        },
-        n => {
-            info!("Sending {} compressed PDF files as ZIP", n);
-            let zip_content = create_zip(compressed_files, file_names)?;
-            let zip_size = format_file_size(zip_content.len() as u64);
-            info!("ZIP file created (size: {})", zip_size);
-            Ok(HttpResponse::Ok()
-                .content_type("application/zip")
-                .body(zip_content))
-        }
+    if compressed_files.is_empty() {
+        return Err(ActixError::from(io::Error::new(io::ErrorKind::InvalidInput, "No files were uploaded")));
+    }
+
+    let result = if compressed_files.len() == 1 {
+        let file_size = format_file_size(compressed_files[0].len() as u64);
+        info!("Sending single compressed PDF file (size: {})", file_size);
+
+        file_processor_addr.send(UpdateProgress { id, progress: 100.0 }).await.unwrap();
+
+        Ok(HttpResponse::Ok()
+            .content_type("application/pdf")
+            .body(compressed_files.pop().unwrap()))
+    } else {
+        info!("Sending {} compressed PDF files as ZIP", compressed_files.len());
+        let zip_content = create_zip(compressed_files, file_names)?;
+        let zip_size = format_file_size(zip_content.len() as u64);
+        info!("ZIP file created (size: {})", zip_size);
+
+        file_processor_addr.send(UpdateProgress { id, progress: 100.0 }).await.unwrap();
+
+        Ok(HttpResponse::Ok()
+            .content_type("application/zip")
+            .body(zip_content))
     };
 
     result
