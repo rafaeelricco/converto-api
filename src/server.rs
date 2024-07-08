@@ -96,8 +96,8 @@ async fn ws_with_id_route(
 
 pub fn run(db: Database) -> Result<Server, std::io::Error> {
     info!("Starting server...");
+    
     let db = web::Data::new(db);
-
     let app_state = web::Data::new(AtomicUsize::new(0));
     let processor = FileProcessor::new().start();
 
