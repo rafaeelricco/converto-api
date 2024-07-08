@@ -1,5 +1,5 @@
 use actix_web::{web, Error as ActixError, HttpRequest, HttpResponse};
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use log::{info, error, debug};
 
 use actix::Addr;

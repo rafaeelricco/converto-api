@@ -11,7 +11,6 @@ use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
 use crate::controller::pdf::post_compress_pdf;
-use crate::routes::pdf::configure_pdf_routes;
 use crate::ws::{Status, WsConn};
 use crate::file_processing::{AddSession, FileProcessor, UpdateProgress};
 
@@ -62,7 +61,7 @@ async fn ws_test_route(
     let file_processor_addr = srv.get_ref().clone();
 
     let resp = WsResponseBuilder::new(WsConn::new(id), &req, stream).start_with_addr()?;
-    file_processor_addr.send(AddSession { id, addr: resp.0.recipient()  }).await.unwrap();
+    file_processor_addr.send(AddSession { id, addr: resp.0.recipient() }).await.unwrap();
     Ok(resp.1)
 }
 
