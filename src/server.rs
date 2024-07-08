@@ -1,3 +1,6 @@
+use crate::ws::*;
+use crate::compress::websocket::*;
+
 use actix_web::dev::Server;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error as ActixError};
 use actix_web::middleware::Logger;
@@ -11,8 +14,6 @@ use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
 use crate::compress::pdf::post_compress_pdf;
-use crate::ws::{Status, WsConn};
-use crate::compress::websocket::{AddSession, FileProcessor, UpdateProgress};
 
 #[derive(Serialize)]
 struct ApiInfo {

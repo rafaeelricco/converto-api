@@ -1,11 +1,11 @@
-use actix::{Actor, Context, Handler, Message, Recipient};
+use actix::*;
+use crate::ws::*;
+
 use serde_json::json;
 use uuid::Uuid;
 use std::collections::HashMap;
 use std::sync::Arc;
 use futures::lock::Mutex;
-
-use crate::ws::{Status, WsMessage};
 
 type Socket = Recipient<WsMessage>;
 
