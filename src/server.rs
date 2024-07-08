@@ -10,9 +10,9 @@ use uuid::Uuid;
 use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
-use crate::controller::pdf::post_compress_pdf;
+use crate::compress::pdf::post_compress_pdf;
 use crate::ws::{Status, WsConn};
-use crate::file_processing::{AddSession, FileProcessor, UpdateProgress};
+use crate::compress::websocket::{AddSession, FileProcessor, UpdateProgress};
 
 #[derive(Serialize)]
 struct ApiInfo {

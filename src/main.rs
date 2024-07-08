@@ -1,16 +1,6 @@
-use server::run;
-use db::mongodb::init_db_pool;
+use converto_api::{db::mongodb::init_db_pool, server::run};
 use log::{info, warn, error};
 use std::env;
-
-mod db;
-mod controller;
-mod models;
-mod routes;
-mod server;
-mod utils;
-mod ws;
-mod file_processing;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {

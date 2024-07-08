@@ -15,10 +15,25 @@ use std::path::Path;
 use std::fs;
 use std::io::Cursor;
 
-use crate::file_processing::{CompleteProcess, FileProcessor, UpdateProgress};
-use crate::models::pdf::CompressionLevel;
-use crate::utils::format_file::format_file_size;
+use crate::compress::websocket::{CompleteProcess, FileProcessor, UpdateProgress};
+use crate::utils::format_file_size;
 use crate::ws::Status;
+
+pub enum CompressionLevel {
+    Low,
+    Medium,
+    High,
+}
+
+impl From<&str> for CompressionLevel {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "low" => CompressionLevel::Low,
+            "high" => CompressionLevel::High,
+            _ => CompressionLevel::Medium,
+        }
+    }
+}
 
 pub async fn post_compress_pdf(
     req: HttpRequest,
