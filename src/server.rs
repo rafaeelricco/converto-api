@@ -70,7 +70,11 @@ async fn send_test_message(
     srv: web::Data<Addr<FileProcessor>>,
 ) -> impl Responder {
     let test_id = "bf4bc249-1833-4456-9b71-90ca23a7b200";
-    srv.send(UpdateProgress { id: Uuid::parse_str(test_id).unwrap(), progress: 42.0, message: "Test message".to_string(), status: Status::InProgress }).await.unwrap();
+    srv.send(UpdateProgress { 
+        id: Uuid::parse_str(test_id).unwrap(),
+        files: vec![FileProgress { id: Uuid::new_v4().to_string(), progress: 0.0, message: "Test message".to_string(), file_name: None }],
+        status: Status::InProgress,
+    }).await.unwrap();
     HttpResponse::Ok().body(format!("Test message sent with ID: {}", test_id))
 }
 

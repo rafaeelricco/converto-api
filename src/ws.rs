@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -15,17 +16,22 @@ pub enum Status {
     Connected,
     InProgress,
     Completed,
-    Disconnected
-}
-pub struct State {
-    progress: f32,
-    status: Status,
-    message: String,
+    Disconnected,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct FileProgress {
+    pub id: String,
+    pub progress: f32,
+    pub file_name: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug)]
 pub struct WsConn {
     pub id: Uuid,
-    state: State,
+    pub files: Vec<FileProgress>,
+    pub status: Status,
     hb: Instant,
 }
 
@@ -37,23 +43,17 @@ impl WsConn {
     pub fn new(id: Uuid) -> Self {
         WsConn {
             id,
-            state: State {
-                progress: 0.0,
-                status: Status::Connecting,
-                message: "".to_string(),
-            },
+            files: Vec::new(),
             hb: Instant::now(),
+            status: Status::Connecting,
         }
     }
 
     fn send_status(&self, ctx: &mut ws::WebsocketContext<Self>) {
         let status_message = json!({
-            "id": self.id.to_string(),
-            "state": {
-                "progress": self.state.progress,
-                "status": self.state.status,
-                "message": self.state.message,
-            }
+            "id": self.id,
+            "files": self.files,
+            "status": self.status,
         }).to_string();
         ctx.text(status_message);
     }
@@ -68,6 +68,20 @@ impl WsConn {
             ctx.ping(b"hi");
         });
     }
+
+    fn update_file_progress(&mut self, file_id: String, file_name: Option<String>, progress: f32, message: String) {
+        if let Some(file) = self.files.iter_mut().find(|f| f.id == file_id) {
+            file.progress = progress;
+            file.message = message;
+        } else {
+            self.files.push(FileProgress {
+                id: file_id,
+                file_name,
+                progress,
+                message,
+            });
+        }
+    }
 }
 
 impl Actor for WsConn {
@@ -75,12 +89,12 @@ impl Actor for WsConn {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.hb(ctx);
-        self.state.status = Status::Connected;
+        self.status = Status::Connected;
         self.send_status(ctx);
     }
 
     fn stopping(&mut self, _: &mut Self::Context) -> Running {
-        self.state.status = Status::Disconnected;
+        self.status= Status::Disconnected;
         Running::Stop
     }
 }

@@ -31,34 +31,28 @@ impl FileProcessor {
         sessions.remove(&id);
     }
 
-    pub async fn update_progress(&self, id: Uuid, progress: f32, status: Status, message: String) {
+    pub async fn update_progress(&self, id: Uuid, files: Vec<FileProgress>, status: Status) {
         let sessions = self.sessions.lock().await;
         if let Some(socket) = sessions.get(&id) {
             let message = json!(
                 {
                     "id": id.to_string(),
-                    "state": {
-                        "progress": progress,
-                        "status": status,
-                        "message": message
-                    }
+                    "files": files,
+                    "status": status
                 }
             ).to_string();
             let _ = socket.do_send(WsMessage(message));
         }
     }
 
-    pub async fn complete_process(&self, id: Uuid, progress: f32, status: Status, message: String) {
+    pub async fn complete_process(&self, id: Uuid, files: Vec<FileProgress>,status: Status) {
         let sessions = self.sessions.lock().await;
         if let Some(socket) = sessions.get(&id) {
             let message = json!(
                 {
                     "id": id.to_string(),
-                    "state": {
-                        "progress": progress,
-                        "status": status,
-                        "message": message
-                    }
+                    "files": files,
+                    "status": status,
                 }
             ).to_string();
             let _ = socket.do_send(WsMessage(message));
@@ -114,9 +108,8 @@ impl Handler<RemoveSession> for FileProcessor {
 #[rtype(result = "()")]
 pub struct UpdateProgress {
     pub id: Uuid,
-    pub progress: f32,
     pub status: Status,
-    pub message: String,
+    pub files: Vec<FileProgress>,
 }
 
 impl Handler<UpdateProgress> for FileProcessor {
@@ -124,13 +117,14 @@ impl Handler<UpdateProgress> for FileProcessor {
 
     fn handle(&mut self, msg: UpdateProgress, _: &mut Context<Self>) {
         let id = msg.id;
-        let progress = msg.progress;
+        // let progress = msg.progress;
         let status = msg.status;
-        let message = msg.message;
+        // let message = msg.message;
+        let files = msg.files;
         let processor = self.clone();
 
         actix::spawn(async move {
-            processor.update_progress(id, progress, status, message).await;
+            processor.update_progress(id, files, status).await;
         });
     }
 }
@@ -139,9 +133,8 @@ impl Handler<UpdateProgress> for FileProcessor {
 #[rtype(result = "()")]
 pub struct CompleteProcess {
     pub id: Uuid,
-    pub progress: f32,
     pub status: Status,
-    pub message: String,
+    pub files: Vec<FileProgress>,
 }
 
 impl Handler<CompleteProcess> for FileProcessor {
@@ -149,13 +142,12 @@ impl Handler<CompleteProcess> for FileProcessor {
 
     fn handle(&mut self, msg: CompleteProcess, _: &mut Context<Self>) {
         let id = msg.id;
-        let progress = msg.progress;
         let status = msg.status;
-        let message = msg.message;
+        let files = msg.files;
         let processor = self.clone();
 
         actix::spawn(async move {
-            processor.complete_process(id, progress, status, message).await;
+            processor.complete_process(id, files, status).await;
         });
     }
 }
