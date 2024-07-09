@@ -4,7 +4,6 @@ use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
 use std::time::{Duration, Instant};
-use std::collections::HashMap;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -67,20 +66,6 @@ impl WsConn {
             }
             ctx.ping(b"hi");
         });
-    }
-
-    fn update_file_progress(&mut self, file_id: String, file_name: Option<String>, progress: f32, message: String) {
-        if let Some(file) = self.files.iter_mut().find(|f| f.id == file_id) {
-            file.progress = progress;
-            file.message = message;
-        } else {
-            self.files.push(FileProgress {
-                id: file_id,
-                file_name,
-                progress,
-                message,
-            });
-        }
     }
 }
 
