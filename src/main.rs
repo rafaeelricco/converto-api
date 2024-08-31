@@ -24,6 +24,7 @@ async fn main() -> std::io::Result<()> {
     };
 
     info!("Initializing database connection pool...");
+    
     let db_pool = match init_db_pool(&db_url).await {
         Ok(pool) => {
             pool

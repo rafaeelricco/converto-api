@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use chrono::Utc;
 use log::info;
 use uuid::Uuid;
+use std::env;
 use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
@@ -105,6 +106,12 @@ pub fn run(db: Database) -> Result<Server, std::io::Error> {
     let db = web::Data::new(db);
     let app_state = web::Data::new(AtomicUsize::new(0));
     let processor = FileProcessor::new().start();
+    
+    let bind_address = if env::var("ENV").unwrap_or("dev".to_string()) == "dev" {
+         "127.0.0.1:5000"
+    } else {
+        "0.0.0.0:5000"
+    };
 
     let server = HttpServer::new(move || {
         App::new()
@@ -120,11 +127,11 @@ pub fn run(db: Database) -> Result<Server, std::io::Error> {
             .wrap(Logger::default())
     })
     .workers(2)
-    .bind(("127.0.0.1", 5000))?
+    .bind(bind_address)?
     .run();
 
-    info!("Server running at http://127.0.0.1:5000");
-    info!("WebSocket server running at ws://127.0.0.1:5000/ws");
+    info!("Server running at http://{}", bind_address);
+    info!("WebSocket server running at ws://{}", bind_address);
     info!("Press 'Ctrl + C' to stop the server");
     Ok(server)
 }
