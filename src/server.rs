@@ -108,9 +108,9 @@ pub fn run(db: Database) -> Result<Server, std::io::Error> {
     let processor = FileProcessor::new().start();
     
     let bind_address = if env::var("ENV").unwrap_or("dev".to_string()) == "dev" {
-         "127.0.0.1:5000"
+        "127.0.0.1:10000"
     } else {
-        "0.0.0.0:5000"
+        "0.0.0.0:10000"
     };
 
     let server = HttpServer::new(move || {
