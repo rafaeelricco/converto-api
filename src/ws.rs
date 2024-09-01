@@ -24,6 +24,7 @@ pub struct FileProgress {
     pub progress: f32,
     pub file_name: Option<String>,
     pub message: String,
+    pub compression_level: Option<String>,  
 }
 
 #[derive(Debug)]

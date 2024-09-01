@@ -7,6 +7,7 @@ use futures::{StreamExt, TryStreamExt};
 use log::{info, error, debug};
 
 use actix::Addr;
+use serde::Serialize;
 use serde_json::json;
 use tempfile::NamedTempFile;
 use actix_multipart::Multipart;
@@ -31,7 +32,7 @@ pub async fn post_compress_pdf(
 
     file_processor_addr.send(UpdateProgress { 
         id,
-        files: vec![FileProgress { id: Uuid::new_v4().to_string(), progress: 0.0, message: format!("Converto está recebendo seus arquivos."), file_name: None }],
+        files: vec![FileProgress { id: Uuid::new_v4().to_string(), progress: 0.0, message: format!("Converto está recebendo seus arquivos."), file_name: None, compression_level: Some(format!("{:?}", CompressionLevel::Medium)) }],
         status: Status::InProgress,
     }).await.unwrap();
 
@@ -68,7 +69,8 @@ pub async fn post_compress_pdf(
             id: file_id, 
             progress: 90.0, 
             file_name: Some(filename.clone()),
-            message: format!("Arquivo {} processado.", filename) 
+            message: format!("Arquivo {} processado.", filename) ,
+            compression_level: Some(format!("{:?}", CompressionLevel::Low)), 
         });
     }
 
@@ -105,7 +107,8 @@ async fn update_progress(file_processor_addr: &web::Data<Addr<FileProcessor>>, i
             id: file_id.to_string(), 
             progress, 
             file_name: Some(filename.to_string()),
-            message: message.to_string() 
+            message: message.to_string(),
+            compression_level: Some(format!("{:?}", CompressionLevel::Medium)), 
         }],
         status: Status::InProgress,
     }).await.unwrap();
@@ -116,8 +119,8 @@ pub fn compress_pdf(input_path: &Path, compression_level: CompressionLevel) -> i
     let input_size = input_content.len() as u64;
     info!("Input file size: {}", format_file_size(input_size));
     if !input_content.starts_with(b"%PDF") {
-        error!("Input file does not appear to be a valid PDF");
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid PDF file"));
+        info!("Input file does not appear to be a valid PDF, skipping compression.");
+        return Ok(Vec::new()); 
     }
 
     let output_file = NamedTempFile::new()?;
@@ -182,6 +185,7 @@ fn create_zip(files: Vec<Vec<u8>>, file_names: Vec<String>) -> io::Result<Vec<u8
     Ok(zip_buffer)
 }
 
+#[derive(Debug, Serialize, Clone)]
 pub enum CompressionLevel {
     Low,
     Medium,

@@ -41,7 +41,7 @@ impl FileProcessor {
                     "status": status
                 }
             ).to_string();
-            let _ = socket.do_send(WsMessage(message));
+            socket.do_send(WsMessage(message));
         }
     }
 
@@ -55,7 +55,7 @@ impl FileProcessor {
                     "status": status,
                 }
             ).to_string();
-            let _ = socket.do_send(WsMessage(message));
+            socket.do_send(WsMessage(message));
         }
     }
 }

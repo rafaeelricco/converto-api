@@ -1,12 +1,14 @@
 use crate::ws::*;
 use crate::compress::websocket::*;
+use crate::compress::pdf::{post_compress_pdf, CompressionLevel};
 
 use actix_web::dev::Server;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder, Error as ActixError};
 use actix_web::middleware::Logger;
 use actix::prelude::*;
-use mongodb::Database;
+
 use serde::{Deserialize, Serialize};
+use mongodb::Database;
 use chrono::Utc;
 use log::info;
 use uuid::Uuid;
@@ -14,7 +16,6 @@ use std::env;
 use std::sync::atomic::AtomicUsize;
 use actix_web_actors::ws::WsResponseBuilder;
 
-use crate::compress::pdf::post_compress_pdf;
 
 #[derive(Serialize)]
 struct ApiInfo {
@@ -59,7 +60,7 @@ async fn ws_test_route(
     stream: web::Payload,
     srv: web::Data<Addr<FileProcessor>>,
 ) -> Result<HttpResponse, ActixError> {
-    let id = Uuid::parse_str("bf4bc249-1833-4456-9b71-90ca23a7b200").unwrap();
+    let id = Uuid::parse_str("test-id").unwrap();
     let file_processor_addr = srv.get_ref().clone();
 
     let resp = WsResponseBuilder::new(WsConn::new(id), &req, stream).start_with_addr()?;
@@ -70,19 +71,23 @@ async fn ws_test_route(
 async fn send_test_message(
     srv: web::Data<Addr<FileProcessor>>,
 ) -> impl Responder {
-    let test_id = "bf4bc249-1833-4456-9b71-90ca23a7b200";
+    let test_id = "test-id";
     srv.send(UpdateProgress { 
         id: Uuid::parse_str(test_id).unwrap(),
-        files: vec![FileProgress { id: Uuid::new_v4().to_string(), progress: 0.0, message: "Test message".to_string(), file_name: None }],
+files: vec![FileProgress {
+    id: Uuid::new_v4().to_string(),
+    progress: 0.0,
+    message: "Test message".to_string(),
+    file_name: None,
+    compression_level: Some(format!("{:?}", CompressionLevel::Medium)), 
+}],
         status: Status::InProgress,
     }).await.unwrap();
     HttpResponse::Ok().body(format!("Test message sent with ID: {}", test_id))
 }
 
 #[derive(Deserialize)]
-struct WsParams {
-    id: String,
-}
+struct WsParams { id: String, }
 
 async fn ws_with_id_route(
     req: HttpRequest,
