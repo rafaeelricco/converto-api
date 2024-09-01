@@ -22,6 +22,10 @@ use std::fs;
 use std::io::Cursor;
 use std::vec;
 
+
+// post_compress_pdf
+// ------------------------------------------------------------------
+// TODO: implement a correct way to update ws progress after receive all files. We need a status to informate "All files received, starting compression"
 pub async fn post_compress_pdf(
     req: HttpRequest,
     mut payload: Multipart,
@@ -29,55 +33,73 @@ pub async fn post_compress_pdf(
 ) -> Result<HttpResponse, ActixError> {
     let id = Uuid::parse_str(&req.query_string().replace("id=", "")).unwrap();
     let mut files: Vec<FileProgress> = Vec::new();
+    let mut temp_files = Vec::new();
+    let mut file_names = Vec::new();
 
+    // Initial progress update
     file_processor_addr.send(UpdateProgress { 
         id,
-        files: vec![FileProgress { id: Uuid::new_v4().to_string(), progress: 0.0, message: format!("Converto está recebendo seus arquivos."), file_name: None, compression_level: Some(format!("{:?}", CompressionLevel::Medium)) }],
+        files: vec![FileProgress { 
+            id: Uuid::new_v4().to_string(), 
+            progress: 0.0, 
+            message: "Converto está recebendo seus arquivos.".to_string(), 
+            file_name: None, 
+            compression_level: Some("Medium".to_string()) 
+        }],
         status: Status::InProgress,
     }).await.unwrap();
 
-    let mut compressed_files = Vec::new();
-    let mut file_names = Vec::new();
-
+    // Receive all files first
     while let Ok(Some(mut field)) = payload.try_next().await {
         let file_id = Uuid::new_v4().to_string();
         let content_disposition = field.content_disposition();
         let filename = content_disposition.get_filename().unwrap_or("unnamed.pdf").to_string();
         let mut temp_file = NamedTempFile::new()?;
 
-        update_progress(&file_processor_addr, &id, &file_id, &filename, 25.0, "Recebendo arquivo.").await;
-
         while let Some(chunk) = field.next().await {
             let data = chunk?;
             temp_file.write_all(&data)?;
         }
 
-        update_progress(&file_processor_addr, &id, &file_id, &filename, 50.0, "Arquivo recebido.").await;
-
         let original_size = temp_file.path().metadata()?.len();
         info!("PDF file '{}' received and saved temporarily (size: {})", filename, format_file_size(original_size));
 
-        update_progress(&file_processor_addr, &id, &file_id, &filename, 75.0, "Comprimindo arquivo.").await;
-
-        let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Low)?;
-        compressed_files.push(compressed_content);
+        temp_files.push((temp_file, file_id.clone()));
         file_names.push(filename.clone());
-
-        update_progress(&file_processor_addr, &id, &file_id, &filename, 100.0, "Arquivo comprimido.").await;
 
         files.push(FileProgress { 
             id: file_id, 
-            progress: 90.0, 
+            progress: 50.0, 
             file_name: Some(filename.clone()),
-            message: format!("Arquivo {} processado.", filename) ,
-            compression_level: Some(format!("{:?}", CompressionLevel::Low)), 
+            message: format!("Arquivo {} recebido.", filename),
+            compression_level: Some("Medium".to_string()), 
         });
     }
 
-    if compressed_files.is_empty() {
+    if temp_files.is_empty() {
         return Err(ActixError::from(io::Error::new(io::ErrorKind::InvalidInput, json!({"error": "Nenhum arquivo recebido."}).to_string())));
     }
 
+    // Update progress after receiving all files
+    file_processor_addr.send(UpdateProgress { 
+        id,
+        files: files.clone(),
+        status: Status::InProgress,
+    }).await.unwrap();
+
+    // Compress all files
+    let mut compressed_files = Vec::new();
+    for (index, (temp_file, _)) in temp_files.iter().enumerate() {
+        let filename = &file_names[index];
+        
+        let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Low)?;
+        compressed_files.push(compressed_content);
+
+        files[index].progress = 100.0;
+        files[index].message = format!("Arquivo {} processado.", filename);
+    }
+
+    // Final progress update
     file_processor_addr.send(UpdateProgress { 
         id,
         files: files.clone(),
@@ -100,15 +122,15 @@ pub async fn post_compress_pdf(
     result
 }
 
-async fn update_progress(file_processor_addr: &web::Data<Addr<FileProcessor>>, id: &Uuid, file_id: &str, filename: &str, progress: f32, message: &str) {
+async fn update_progress(file_processor_addr: &web::Data<Addr<FileProcessor>>, id: &Uuid, file_id: &str, filename: Option<String>, progress: f32, message: &str, compression_level: Option<String>) {
     file_processor_addr.send(UpdateProgress { 
         id: *id,
         files: vec![FileProgress { 
             id: file_id.to_string(), 
             progress, 
-            file_name: Some(filename.to_string()),
+            file_name: filename,
             message: message.to_string(),
-            compression_level: Some(format!("{:?}", CompressionLevel::Medium)), 
+            compression_level: Some(format!("{:?}", compression_level)), 
         }],
         status: Status::InProgress,
     }).await.unwrap();
