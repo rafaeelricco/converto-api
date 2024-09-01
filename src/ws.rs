@@ -25,6 +25,9 @@ pub struct FileProgress {
     pub file_name: Option<String>,
     pub message: String,
     pub compression_level: Option<String>,  
+    // FileProgress
+    // ------------------------------------------------------------------
+    // TODO: implement a way to return a url to download the file
 }
 
 #[derive(Debug)]

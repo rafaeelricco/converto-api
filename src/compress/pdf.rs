@@ -26,6 +26,7 @@ use std::vec;
 // post_compress_pdf
 // ------------------------------------------------------------------
 // TODO: implement a correct way to update ws progress after receive all files. We need a status to informate "All files received, starting compression"
+// TODO: implement a correct way to send the file to the user. It's possible send a link to download the file?
 pub async fn post_compress_pdf(
     req: HttpRequest,
     mut payload: Multipart,
