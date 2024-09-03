@@ -20,7 +20,6 @@ use std::io;
 use std::path::Path;
 use std::fs;
 use std::io::Cursor;
-use std::vec;
 
 
 // post_compress_pdf
@@ -33,24 +32,9 @@ pub async fn post_compress_pdf(
     file_processor_addr: web::Data<Addr<FileProcessor>>,
 ) -> Result<HttpResponse, ActixError> {
     let id = Uuid::parse_str(&req.query_string().replace("id=", "")).unwrap();
-    let mut files: Vec<FileProgress> = Vec::new();
     let mut temp_files = Vec::new();
-    let mut file_names = Vec::new();
+    let mut file_progresses = Vec::new();
 
-    // Initial progress update
-    file_processor_addr.send(UpdateProgress { 
-        id,
-        files: vec![FileProgress { 
-            id: Uuid::new_v4().to_string(), 
-            progress: 0.0, 
-            message: "Converto está recebendo seus arquivos.".to_string(), 
-            file_name: None, 
-            compression_level: Some("Medium".to_string()) 
-        }],
-        status: Status::InProgress,
-    }).await.unwrap();
-
-    // Receive all files first
     while let Ok(Some(mut field)) = payload.try_next().await {
         let file_id = Uuid::new_v4().to_string();
         let content_disposition = field.content_disposition();
@@ -66,14 +50,12 @@ pub async fn post_compress_pdf(
         info!("PDF file '{}' received and saved temporarily (size: {})", filename, format_file_size(original_size));
 
         temp_files.push((temp_file, file_id.clone()));
-        file_names.push(filename.clone());
-
-        files.push(FileProgress { 
-            id: file_id, 
-            progress: 50.0, 
+        file_progresses.push(FileProgress {
+            id: file_id,
+            progress: 0.0,
             file_name: Some(filename.clone()),
             message: format!("Arquivo {} recebido.", filename),
-            compression_level: Some("Medium".to_string()), 
+            compression_level: Some("Medium".to_string()),
         });
     }
 
@@ -81,40 +63,30 @@ pub async fn post_compress_pdf(
         return Err(ActixError::from(io::Error::new(io::ErrorKind::InvalidInput, json!({"error": "Nenhum arquivo recebido."}).to_string())));
     }
 
-    // Update progress after receiving all files
-    file_processor_addr.send(UpdateProgress { 
-        id,
-        files: files.clone(),
-        status: Status::InProgress,
-    }).await.unwrap();
+    update_progress_batch(&file_processor_addr, &id, file_progresses.clone()).await;
 
-    // Compress all files
     let mut compressed_files = Vec::new();
-    for (index, (temp_file, _)) in temp_files.iter().enumerate() {
-        let filename = &file_names[index];
+
+    for (index, (temp_file, file_id)) in temp_files.iter().enumerate() {
+
+        let filename = file_progresses[index].file_name.clone().unwrap_or_default();
+
+        update_progress(&file_processor_addr, &id, file_id, 50.0, &format!("Arquivo {} processado.", filename), Some("Medium".to_string()), &mut file_progresses).await;
         
-        let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Low)?;
+        let compressed_content = compress_pdf(temp_file.path(), CompressionLevel::Medium)?;
         compressed_files.push(compressed_content);
 
-        files[index].progress = 100.0;
-        files[index].message = format!("Arquivo {} processado.", filename);
+        update_progress(&file_processor_addr, &id, file_id, 75.0, &format!("Arquivo {} processado.", filename), Some("Medium".to_string()), &mut file_progresses).await;
+
+        update_progress(&file_processor_addr, &id, file_id, 100.0, &format!("Arquivo {} processado.", filename), Some("Medium".to_string()), &mut file_progresses).await;
     }
 
-    // Final progress update
-    file_processor_addr.send(UpdateProgress { 
-        id,
-        files: files.clone(),
-        status: Status::InProgress,
-    }).await.unwrap();
-
     let result = if compressed_files.len() == 1 {
-        file_processor_addr.send(CompleteProcess { id, files, status: Status::Completed }).await.unwrap();
         Ok(HttpResponse::Ok()
             .content_type("application/pdf")
             .body(compressed_files.pop().unwrap()))
     } else {
-        let zip_content = create_zip(compressed_files, file_names)?;
-        file_processor_addr.send(CompleteProcess { id, files, status: Status::Completed }).await.unwrap();
+        let zip_content = create_zip(compressed_files, file_progresses.iter().map(|fp| fp.file_name.clone().unwrap_or_default()).collect())?;
         Ok(HttpResponse::Ok()
             .content_type("application/zip")
             .body(zip_content))
@@ -123,20 +95,35 @@ pub async fn post_compress_pdf(
     result
 }
 
-async fn update_progress(file_processor_addr: &web::Data<Addr<FileProcessor>>, id: &Uuid, file_id: &str, filename: Option<String>, progress: f32, message: &str, compression_level: Option<String>) {
+async fn update_progress_batch(file_processor_addr: &web::Data<Addr<FileProcessor>>, id: &Uuid, files: Vec<FileProgress>) {
     file_processor_addr.send(UpdateProgress { 
         id: *id,
-        files: vec![FileProgress { 
-            id: file_id.to_string(), 
-            progress, 
-            file_name: filename,
-            message: message.to_string(),
-            compression_level: Some(format!("{:?}", compression_level)), 
-        }],
+        files,
         status: Status::InProgress,
     }).await.unwrap();
 }
 
+async fn update_progress(
+    file_processor_addr: &web::Data<Addr<FileProcessor>>,
+    id: &Uuid,
+    file_id: &str,
+    progress: f32,
+    message: &str,
+    compression_level: Option<String>,
+    file_progresses: &mut Vec<FileProgress>
+) {
+    if let Some(file_progress) = file_progresses.iter_mut().find(|fp| fp.id == file_id) {
+        file_progress.progress = progress;
+        file_progress.message = message.to_string();
+        file_progress.compression_level = compression_level;
+    }
+
+    file_processor_addr.send(UpdateProgress { 
+        id: *id,
+        files: file_progresses.clone(),
+        status: Status::InProgress,
+    }).await.unwrap();
+}
 pub fn compress_pdf(input_path: &Path, compression_level: CompressionLevel) -> io::Result<Vec<u8>> {
     let input_content = fs::read(input_path)?;
     let input_size = input_content.len() as u64;
